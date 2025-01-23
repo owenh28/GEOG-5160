@@ -1,0 +1,35 @@
+---
+title: "Test Document"
+author: "Owen Harlacker"
+format: html
+editor: visual
+---
+
+This is a test doc for lab-1
+
+```{r}
+library(tidyverse)
+library(rayshader)
+penguin <- read.csv('./Data/penguins.csv')
+# penguin
+
+```
+
+```{r}
+ggplot(penguin, aes(x=bill_length_mm, y=bill_depth_mm, col=species))+geom_point()
+
+```
+
+And now for something cool but also a bit ridiculous
+
+```{r}
+plt <- ggplot(penguin, aes(x=bill_length_mm, y=flipper_length_mm, color=body_mass_g)) + geom_point()+ scale_color_continuous(type="viridis")+xlab("Bill Length (mm)")+ylab("Flipper Length (mm)")+labs(color="Body Mass (g)")
+
+plt
+par(mfrow = c(1,2))
+plot_gg(plt, width = 5, raytrace = FALSE, preview = FALSE)
+plot_gg(plt, width=5, windowsize = c(5000,2000), multicore = TRUE, zoom = 0.5, phi = 35, theta = 30, sunangle = 225)
+Sys.sleep(0.2)
+render_snapshot(clear=TRUE)
+
+```
