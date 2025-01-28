@@ -1,0 +1,21 @@
+---
+title: "Test Document"
+author: "Owen Harlacker"
+output: html_notebook
+---
+
+```{r}
+library(ggplot2)
+library(tidymodels)
+library(tidyverse)
+```
+```{r}
+housing_df <- read.csv('./data/housing.csv')
+head(housing_df)
+```
+```{r}
+ggplot(housing_df, aes(x=bedrooms, y=bathrooms))+geom_point()
+```
+```{r}
+colSums(is.na(housing_df))
+```
