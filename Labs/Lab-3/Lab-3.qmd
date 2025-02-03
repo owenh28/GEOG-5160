@@ -1,0 +1,9 @@
+```{r}
+library(terra)
+library(sf)
+library(tmap)
+library(tree)
+library(rpart.plot)
+library(vip)
+library(pdp)
+```

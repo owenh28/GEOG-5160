@@ -22,6 +22,12 @@ housing_df <- read.csv('./data/housing.csv')
 
 ## Visualizations
 
+Raw data table (first 10 rows)
+
+```{r}
+knitr::kable(head(housing_df, 10))
+```
+
 ```{r}
 ggplot(housing_df, aes(x=price))+geom_histogram()
 ```
@@ -39,24 +45,20 @@ library(dat)
 ```
 
 ```{r}
-rec <- recipe(price~., housing_df) |> step_log(c(area, price))
+rec <- recipe(area~price+bathrooms+guestroom, housing_df) |> step_log(c(area, price,bathrooms))
 df2 <- rec |> prep() |> bake(housing_df)
 ```
 
-
 ```{r}
-ggplot(df2, aes(x = price)) +
+ggplot(df2, aes(x = area)) +
   geom_histogram()
 ```
 
-
 ```{r}
-rec <- recipe(price ~ ., housing_df) |>
+rec <- recipe(area~price+bathrooms+guestroom, housing_df) |>
   step_log(c(area, price)) |>
   step_dummy(all_nominal_predictors())
 ```
-
-
 
 ```{r}
 dat2 <- rec |>
@@ -66,17 +68,14 @@ dat2 <- rec |>
 names(dat2)
 ```
 
-
 ```{r}
-fit1 <- lm(price ~ ., data=df2)
+fit1 <- lm(area~price+bathrooms+guestroom, data=df2)
 
 ```
-
 
 ```{r}
 summary(fit1)
 ```
-
 
 ### Cross Validation
 
@@ -86,58 +85,49 @@ dat_train <- training(dat_split)
 dat_test <- testing(dat_split)
 ```
 
-
 ### Model initiation
 
 ```{r}
 lin_reg <- linear_reg()
 ```
 
-
 ```{r}
-lr_fit <- lin_reg |> fit(price ~., df2)
+lr_fit <- lin_reg |> fit(area~price+bathrooms+guestroom, df2)
 ```
-
 
 ```{r}
 predict(lr_fit, dat_test)
 ```
 
-
 ```{r}
 pred_test <- predict(lr_fit, dat_test) |>
-  bind_cols(dat_test |> select(price))
+  bind_cols(dat_test |> select(area))
 ```
 
 ### Model evaluation
 
 ```{r}
-ggplot(pred_test, aes(x = price, y = .pred)) +
+ggplot(pred_test, aes(x = area, y = .pred)) +
   geom_point() +
   scale_x_continuous("Observed") +
   scale_y_continuous("Predicted") +
   geom_abline(aes(intercept = 0, slope = 1))
 ```
 
+```{r}
+pred_test %>% 
+  rsq(truth = area, .pred)
+```
 
 ```{r}
 pred_test %>% 
-  rsq(truth = price, .pred)
+  rmse(truth = area, .pred)
 ```
-
 
 ```{r}
 pred_test %>% 
-  rmse(truth = price, .pred)
+  mpe(truth = area, .pred)
 ```
-
-
-```{r}
-pred_test %>% 
-  mpe(truth = price, .pred)
-```
-
-
 
 ```{r}
 ## K-fold (4 folds)
@@ -153,7 +143,6 @@ results <- workflow %>%
 collect_metrics(results)
 ```
 
-
 ## Trying a different model
 
 ```{r}
@@ -161,7 +150,6 @@ collect_metrics(results)
 lasso_mod <- linear_reg(penalty = 0.001, mixture = 1) %>%
   set_engine("glmnet")
 ```
-
 
 ```{r}
 workflow <- workflow() %>%
@@ -173,4 +161,5 @@ results <- workflow %>%
   fit_resamples(resamples = folds, metrics = metric_set(rmse))
 
 collect_metrics(results)
+
 ```
