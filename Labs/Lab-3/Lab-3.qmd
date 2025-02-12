@@ -7,3 +7,325 @@ library(rpart.plot)
 library(vip)
 library(pdp)
 ```
+```{r}
+library(terra)
+library(sf)
+library(tmap)
+library(tree)
+library(rpart.plot)
+library(vip)
+library(pdp)
+library(tidyverse)
+library(tidymodels)
+```
+## Read data
+```{r}
+pe <- read.csv("./data/pe_df.csv")
+head(pe)
+```
+```{r}
+var_names <- colnames(pe)[6:24]
+var_names
+```
+
+```{r}
+pe <- pe |> mutate(pa = as.factor(pa))
+```
+
+## Convert to geometry
+```{r}
+pe_sf <- st_as_sf(pe, coords = c("longitude", "latitude"))
+```
+
+
+## Plot
+
+```{r}
+tm_shape(pe_sf)+tm_symbols(col="bio7", palette = "viridis", style = "cont")
+```
+
+# Modelling
+## Testing and Training
+
+### Splitting dataset
+
+```{r}
+pe_split <- initial_split(pe, prop=0.80)
+
+dat_train <- training(pe_split)
+dat_test <- testing(pe_split)
+```
+
+### Create Recipie
+
+```{r}
+rec <- recipe(pa ~., data=dat_train) |> step_select(pa, starts_with("bio"))
+```
+
+```{r}
+dat_train2 <- prep(rec) |> bake(dat_train)
+dat_test2 <- prep(rec) |> bake(dat_test)
+```
+
+### Create models
+
+```{r}
+tree <- decision_tree(mode="classification", engine="rpart")
+```
+
+
+```{r}
+tree_fit <- tree |> fit(pa ~., dat_train2)
+```
+
+### Visualize the model
+
+```{r}
+tree_fit |> extract_fit_engine() |> rpart.plot(roundint=FALSE)
+```
+
+### Evaluate the model
+
+
+```{r}
+pred_test <- predict(tree_fit, dat_test2) |> bind_cols(dat_test2 |> dplyr::select(pa))
+```
+
+Prediction Matrix:
+
+```{r}
+pred_test |> conf_mat(pa, .pred_class)
+
+```
+
+Accuracy Evaluation:
+
+```{r}
+pred_test |> accuracy(pa, .pred_class)
+```
+
+
+## Tuning
+
+
+```{r}
+# Get what can be tuned
+tree$args
+```
+
+
+```{r}
+tune_spec <- decision_tree(min_n = tune(), tree_depth = tune()) |> set_engine("rpart") |> set_mode("classification")
+```
+
+```{r}
+min_n()
+```
+
+```{r}
+tree_depth()
+```
+
+
+```{r}
+tree_grid <- grid_regular(min_n(), tree_depth(), levels = 5)
+```
+
+Validation strategy
+
+```{r}
+dat_folds <- vfold_cv(dat_train2, v=5)
+```
+
+Run tuning
+
+```{r}
+tree_res <- tune_grid(tune_spec, pa ~., grid=tree_grid, resamples=dat_folds, metrics=metric_set(accuracy, roc_auc))
+```
+
+
+```{r}
+tree_res
+```
+
+
+```{r}
+collect_metrics(tree_res)
+```
+
+
+```{r}
+autoplot(tree_res)
+```
+
+
+Select the best params
+
+```{r}
+best_param <- select_best(tree_res, metric = "accuracy") 
+best_param
+```
+
+Finalize Model
+
+```{r}
+tree_final <- finalize_model(tune_spec, best_param)
+tree_fit <- fit(tree_final, pa ~ ., dat_train2)
+```
+
+Accuracy assessment
+```{r}
+pred_test <- predict(tree_fit, dat_test2) |> bind_cols(dat_test2 |> select(pa))
+pred_test |> accuracy(pa, .pred_class)
+```
+
+ROC AUC assessment
+
+```{r}
+pred_test <- predict(tree_fit, dat_test2, type="prob") |> bind_cols(dat_test2 |> select(pa))
+pred_test
+```
+
+```{r}
+roc_auc(pred_test, pa, .pred_1, event_level='second')
+```
+
+Plot the final tree
+
+```{r}
+tree_fit |> extract_fit_engine() |> rpart.plot(roundint=FALSE)
+```
+
+# Random Forest
+
+## Initialize the model
+```{r}
+rf <- rand_forest() |> set_engine("ranger") |> set_mode('classification')
+rf$args
+```
+
+## Define tuning 
+
+```{r}
+tune_spec_rf <- rand_forest(mtry=tune(), trees=tune(), min_n=tune()) |> set_engine('ranger', importance='permutation') |>
+    set_mode('classification')
+
+rf_grid <- grid_regular(mtry(range=c(2,10)), trees(range=c(100,500)), min_n(range=c(2,8)), levels=5)
+rf_grid
+```
+
+
+
+```{r}
+dat_folds <- vfold_cv(dat_train2, v = 5)
+```
+
+
+```{r}
+doParallel::registerDoParallel()
+```
+
+
+
+```{r}
+## Run tuning
+rf_res <- 
+  tune_grid(
+    tune_spec_rf,
+    pa ~ .,
+    grid = rf_grid,
+    resamples = dat_folds,
+    metrics = metric_set(accuracy, roc_auc),
+    control = control_grid(save_workflow = TRUE)
+  )
+
+rf_res
+```
+
+
+Evaluate the different tuning configurations and select the best
+
+```{r}
+collect_metrics(rf_res)
+```
+
+
+```{r}
+autoplot(rf_res)
+```
+
+
+
+```{r}
+best_param <- select_best(rf_res, metric = "roc_auc") 
+best_param
+```
+
+
+## Final RF Model
+
+```{r}
+rf_final <- finalize_model(tune_spec_rf, best_param)
+
+rf_fit <- fit(rf_final, pa ~ ., dat_train2)
+
+pred_test <- predict(rf_fit, dat_test2) |>
+  bind_cols(dat_test2 |> dplyr::select(pa))
+```
+
+Accuracy Assessment
+
+```{r}
+pred_test |>
+  accuracy(pa, .pred_class)
+```
+
+AUC Assessment
+
+```{r}
+pred_test <- predict(rf_fit, dat_test2, type='prob') |> bind_cols(dat_test2 |> select(pa))
+
+pred_test |> roc_auc(pa, .pred_1, event_level='second')
+```
+
+
+## Variable Importance Scores
+
+
+```{r}
+rf_fit_2 <- rf_fit |> extract_fit_engine()
+
+vip(rf_fit_2)
+```
+
+
+## Partial Dependency Plots
+
+
+```{r}
+pdp::partial(rf_fit_2, "bio5", train=dat_train2, plot=TRUE, prob=TRUE, which.class=2, paropts=list(.packages="ranger"))
+```
+
+```{r}
+pdp::partial(rf_fit_2, "bio1", train=dat_train2, plot=TRUE, prob=TRUE, which.class=2, paropts=list(.packages="ranger"))
+```
+
+```{r}
+pdp::partial(rf_fit_2, c("bio1", "bio17"), train = dat_train2,
+        plot = TRUE, prob = TRUE, which.class = 2)
+```
+
+# Gradient Boosted Trees
+
+```{r}
+gbt <- boost_tree() |> set_engine("xgboost") |> set_mode("classification")
+```
+
+
+```{r}
+gbt$args
+```
+
+```{r}
+tune_spec_gbt <- boost_tree(learn_rate=tune(),trees=tune(),min_n=tune()) |> set_engine("xgboost") |> set_mode("classification")
+```
